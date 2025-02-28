@@ -1,6 +1,6 @@
 [package]
 name = "kaudio"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT/Apache-2.0"
 description = "utilities for audio processing" 
@@ -8,7 +8,6 @@ keywords = ["audio"]
 categories = ["science"]
 
 [dependencies]
-anyhow = "1"
 byteorder = "1.5.0"
 futures-util = "0.3.30"
 ogg = { version = "0.9.1", features = ["async"] }
@@ -18,4 +17,5 @@ rubato = "0.15.0"
 serde = { version = "1.0.210", features = ["derive"] }
 serde_json = "1.0.115"
 symphonia = { version = "0.5.3", features = ["all"] }
+thiserror = "2.0.11"
 tokio = { version = "1.35.1", features = ["full"] }

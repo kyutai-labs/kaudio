@@ -2,7 +2,7 @@
 // This source code is licensed under the license found in the
 // LICENSE file in the root directory of this source tree.
 
-use anyhow::Result;
+use crate::Result;
 
 #[repr(Rust, packed)]
 #[derive(Debug, Clone)]
@@ -20,11 +20,11 @@ impl OpusHead {
     pub fn from_slice(data: &[u8]) -> Result<Self> {
         let l = std::mem::size_of::<OpusHead>();
         if data.len() != l {
-            anyhow::bail!("unexpected len for OpusHead, got {} expected {l}", data.len())
+            crate::bail!("unexpected len for OpusHead, got {} expected {l}", data.len())
         }
         let head: Self = unsafe { std::ptr::read_unaligned(data.as_ptr() as *const Self) };
         if &head.magic_signature != b"OpusHead" {
-            anyhow::bail!("unexpected signature {:?}", head.magic_signature);
+            crate::bail!("unexpected signature {:?}", head.magic_signature);
         }
         Ok(head)
     }
@@ -105,7 +105,7 @@ impl Encoder {
             let mut chunk = Vec::with_capacity(OPUS_ENCODER_FRAME_SIZE);
             for _i in 0..OPUS_ENCODER_FRAME_SIZE {
                 let v = match self.out_pcm.pop_front() {
-                    None => anyhow::bail!("unexpected err popping from pcms"),
+                    None => crate::bail!("unexpected err popping from pcms"),
                     Some(v) => v,
                 };
                 chunk.push(v)
@@ -155,7 +155,7 @@ impl AsyncDecoder {
             while let Some(data) = rx_sync.recv().await {
                 tx_tokio.write_all(&data).await?;
             }
-            Ok::<_, anyhow::Error>(())
+            Ok::<_, crate::Error>(())
         });
         let s = Self { pr_ogg, decoder, pcm_buf, size_in_buf: 0, flush_every_n_samples };
         Ok((s, tx_sync))

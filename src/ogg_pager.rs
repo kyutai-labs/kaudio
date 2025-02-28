@@ -6,7 +6,7 @@
 // Typical readers wrap a rust io/tokio reader but here we would rather a
 // non-blocking api that returns all the pages available at the moment.
 
-use anyhow::Result;
+use crate::Result;
 
 // https://xiph.org/ogg/doc/framing.html
 #[repr(Rust, packed)]
@@ -49,10 +49,10 @@ impl PageReader {
         let hdr: OggHeader =
             unsafe { std::ptr::read_unaligned(self.data.as_ptr() as *const OggHeader) };
         if &hdr.capture_pattern != b"OggS" {
-            anyhow::bail!("unexpected capture pattern {:#?}", hdr.capture_pattern)
+            crate::bail!("unexpected capture pattern {:#?}", hdr.capture_pattern)
         }
         if hdr.version != 0 {
-            anyhow::bail!("unsupported ogg version {}", hdr.version)
+            crate::bail!("unsupported ogg version {}", hdr.version)
         }
         let nsegments = hdr.page_segments as usize;
         if self.data.len() < hdr_size + nsegments {

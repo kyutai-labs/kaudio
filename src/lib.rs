@@ -2,11 +2,12 @@
 // This source code is licensed under the license found in the
 // LICENSE file in the root directory of this source tree.
 
+mod error;
 pub mod ogg_opus;
 pub mod ogg_pager;
 pub mod wav;
 
-use anyhow::Result;
+use error::{Error, Result};
 use std::collections::VecDeque;
 
 pub struct AudioOutputData_ {

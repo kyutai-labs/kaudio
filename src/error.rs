@@ -12,6 +12,21 @@ pub enum Error {
     #[error(transparent)]
     OggRead(#[from] ogg::OggReadError),
 
+    #[error("unexpected ogg signature {0:?}")]
+    OggUnexpectedSignature([u8; 8]),
+
+    #[error("unexpected ogg capture pattern {0:?}")]
+    OggUnexpectedCapturePattern([u8; 4]),
+
+    #[error("unexpected len for opus head {0}")]
+    OggUnexpectedLenForOpusHead(usize),
+
+    #[error("unsupported ogg version {0}")]
+    OggUnsupportedVersion(u8),
+
+    #[error("opus pcm was not found")]
+    OpusMissingPcm,
+
     #[error(transparent)]
     Io(#[from] std::io::Error),
 

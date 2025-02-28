@@ -49,10 +49,10 @@ impl PageReader {
         let hdr: OggHeader =
             unsafe { std::ptr::read_unaligned(self.data.as_ptr() as *const OggHeader) };
         if &hdr.capture_pattern != b"OggS" {
-            crate::bail!("unexpected capture pattern {:#?}", hdr.capture_pattern)
+            return Err(crate::Error::OggUnexpectedCapturePattern(hdr.capture_pattern));
         }
         if hdr.version != 0 {
-            crate::bail!("unsupported ogg version {}", hdr.version)
+            return Err(crate::Error::OggUnsupportedVersion(hdr.version));
         }
         let nsegments = hdr.page_segments as usize;
         if self.data.len() < hdr_size + nsegments {

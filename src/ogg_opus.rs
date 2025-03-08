@@ -39,9 +39,10 @@ pub struct Encoder {
     pw: ogg::PacketWriter<'static, Vec<u8>>,
     encoder: opus::Encoder,
     total_data: usize,
+    sample_rate: usize,
     header_data: Vec<u8>,
     out_pcm: std::collections::VecDeque<f32>,
-    out_pcm_buf: Vec<u8>,
+    opus_buf: Vec<u8>,
 }
 
 fn write_opus_header<W: std::io::Write>(w: &mut W) -> std::io::Result<()> {
@@ -89,8 +90,8 @@ impl Encoder {
             data
         };
         let out_pcm = std::collections::VecDeque::with_capacity(2 * OPUS_ENCODER_FRAME_SIZE);
-        let out_pcm_buf = vec![0u8; 50_000];
-        Ok(Self { encoder, pw, header_data, total_data: 0, out_pcm, out_pcm_buf })
+        let opus_buf = vec![0u8; 50_000];
+        Ok(Self { encoder, pw, header_data, total_data: 0, out_pcm, opus_buf, sample_rate })
     }
 
     pub fn header_data(&self) -> &[u8] {
@@ -111,13 +112,18 @@ impl Encoder {
                 chunk.push(v)
             }
             self.total_data += chunk.len();
-            let size = self.encoder.encode_float(&chunk, &mut self.out_pcm_buf)?;
+            let size = self.encoder.encode_float(&chunk, &mut self.opus_buf)?;
+            // The granule position uses a fixed rate of 48kHz even if the underlying audio uses a
+            // different rate.
+            // This does not matter when reading ogg files in chrome but should be set properly for
+            // VLC to work.
+            let absgp = self.total_data as u64 * 48_000 / self.sample_rate as u64;
             if size > 0 {
                 self.pw.write_packet(
-                    self.out_pcm_buf[..size].to_vec(),
+                    self.opus_buf[..size].to_vec(),
                     42,
                     ogg::PacketWriteEndInfo::EndPage,
-                    self.total_data as u64,
+                    absgp,
                 )?;
                 let data = self.pw.inner_mut();
                 if !data.is_empty() {

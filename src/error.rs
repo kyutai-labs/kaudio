@@ -7,7 +7,7 @@ pub enum Error {
     RubatoR(#[from] rubato::ResampleError),
 
     #[error(transparent)]
-    Opus(#[from] opus::Error),
+    Opus(#[from] opus2::Error),
 
     #[error(transparent)]
     OggRead(#[from] ogg::OggReadError),

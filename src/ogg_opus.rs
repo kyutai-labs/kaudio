@@ -37,7 +37,7 @@ const OPUS_ENCODER_FRAME_SIZE: usize = 960;
 
 pub struct Encoder {
     pw: ogg::PacketWriter<'static, Vec<u8>>,
-    encoder: opus::Encoder,
+    encoder: opus2::Encoder,
     total_data: usize,
     sample_rate: usize,
     header_data: Vec<u8>,
@@ -73,8 +73,11 @@ fn write_opus_tags<W: std::io::Write>(w: &mut W) -> std::io::Result<()> {
 
 impl Encoder {
     pub fn new(sample_rate: usize) -> Result<Self> {
-        let encoder =
-            opus::Encoder::new(sample_rate as u32, opus::Channels::Mono, opus::Application::Voip)?;
+        let encoder = opus2::Encoder::new(
+            sample_rate as u32,
+            opus2::Channels::Mono,
+            opus2::Application::Voip,
+        )?;
         let all_data = Vec::new();
         let mut pw = ogg::PacketWriter::new(all_data);
         let mut head = Vec::new();
@@ -138,7 +141,7 @@ impl Encoder {
 
 pub struct AsyncDecoder {
     pr_ogg: ogg::reading::async_api::PacketReader<tokio::io::DuplexStream>,
-    decoder: opus::Decoder,
+    decoder: opus2::Decoder,
     pcm_buf: Vec<f32>,
     size_in_buf: usize,
     flush_every_n_samples: usize,
@@ -154,7 +157,7 @@ impl AsyncDecoder {
         let (mut tx_tokio, rx_tokio) = tokio::io::duplex(100_000);
         let (tx_sync, mut rx_sync) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
         let pr_ogg = ogg::reading::async_api::PacketReader::new(rx_tokio);
-        let decoder = opus::Decoder::new(sample_rate as u32, opus::Channels::Mono)?;
+        let decoder = opus2::Decoder::new(sample_rate as u32, opus2::Channels::Mono)?;
         tokio::task::spawn(async move {
             // It is important to use a tokio mpsc channel here to avoid starving the other
             // threads.
@@ -196,7 +199,7 @@ impl AsyncDecoder {
 
 pub struct Decoder {
     pr_ogg: crate::ogg_pager::PacketReader,
-    decoder: opus::Decoder,
+    decoder: opus2::Decoder,
     pcm_buf: Vec<f32>,
     size_in_buf: usize,
     flush_every_n_samples: usize,
@@ -206,7 +209,7 @@ impl Decoder {
     pub fn new(sample_rate: usize, flush_every_n_samples: usize) -> Result<Self> {
         let pcm_buf = vec![0f32; flush_every_n_samples + sample_rate * 5];
         let pr_ogg = crate::ogg_pager::PacketReader::new();
-        let decoder = opus::Decoder::new(sample_rate as u32, opus::Channels::Mono)?;
+        let decoder = opus2::Decoder::new(sample_rate as u32, opus2::Channels::Mono)?;
         let s = Self { pr_ogg, decoder, pcm_buf, size_in_buf: 0, flush_every_n_samples };
         Ok(s)
     }

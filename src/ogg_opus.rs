@@ -59,7 +59,7 @@ fn write_opus_header<W: std::io::Write>(w: &mut W) -> std::io::Result<()> {
     Ok(())
 }
 
-fn write_opus_tags<W: std::io::Write>(w: &mut W) -> std::io::Result<()> {
+fn write_opus_tags<W: std::io::Write>(w: &mut W, tags: &[(&str, &str)]) -> std::io::Result<()> {
     use byteorder::WriteBytesExt;
 
     // https://wiki.xiph.org/OggOpus#Comment_Header
@@ -67,12 +67,26 @@ fn write_opus_tags<W: std::io::Write>(w: &mut W) -> std::io::Result<()> {
     w.write_all(b"OpusTags")?;
     w.write_u32::<byteorder::LittleEndian>(vendor.len() as u32)?; // vendor string length
     w.write_all(vendor.as_bytes())?; // vendor string, UTF8 encoded
-    w.write_u32::<byteorder::LittleEndian>(0u32)?; // number of tags
+    w.write_u32::<byteorder::LittleEndian>(tags.len() as u32)?; // number of tags
+    for (name, value) in tags {
+        // Each tag is a `NAME=value` user comment, see
+        // https://www.xiph.org/vorbis/doc/v-comment.html
+        let comment = format!("{name}={value}");
+        w.write_u32::<byteorder::LittleEndian>(comment.len() as u32)?;
+        w.write_all(comment.as_bytes())?;
+    }
     Ok(())
 }
 
 impl Encoder {
     pub fn new(sample_rate: usize) -> Result<Self> {
+        Self::new_with_tags(sample_rate, &[])
+    }
+
+    /// An encoder whose comment header carries `tags`, `(name, value)` pairs
+    /// written as `NAME=value` user comments (e.g. `("TITLE", "...")`). The
+    /// names should be printable ASCII without `=`.
+    pub fn new_with_tags(sample_rate: usize, tags: &[(&str, &str)]) -> Result<Self> {
         let encoder = opus2::Encoder::new(
             sample_rate as u32,
             opus2::Channels::Mono,
@@ -83,9 +97,9 @@ impl Encoder {
         let mut head = Vec::new();
         write_opus_header(&mut head)?;
         pw.write_packet(head, 42, ogg::PacketWriteEndInfo::EndPage, 0)?;
-        let mut tags = Vec::new();
-        write_opus_tags(&mut tags)?;
-        pw.write_packet(tags, 42, ogg::PacketWriteEndInfo::EndPage, 0)?;
+        let mut tags_packet = Vec::new();
+        write_opus_tags(&mut tags_packet, tags)?;
+        pw.write_packet(tags_packet, 42, ogg::PacketWriteEndInfo::EndPage, 0)?;
         let header_data = {
             let inner = pw.inner_mut();
             let data = inner.to_vec();
@@ -235,5 +249,35 @@ impl Decoder {
             None
         };
         Ok(pcm)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn opus_tags() -> Result<()> {
+        let tags = [("TITLE", "Hello"), ("ARTIST", "Kyutai")];
+        let encoder = Encoder::new_with_tags(24000, &tags)?;
+        let mut reader = ogg::PacketReader::new(std::io::Cursor::new(encoder.header_data()));
+        let head = reader.read_packet_expected()?;
+        assert!(head.data.starts_with(b"OpusHead"));
+        let packet = reader.read_packet_expected()?.data;
+        let mut expected = b"OpusTags".to_vec();
+        expected.extend_from_slice(&11u32.to_le_bytes());
+        expected.extend_from_slice(b"KyutaiMoshi");
+        expected.extend_from_slice(&2u32.to_le_bytes());
+        expected.extend_from_slice(&11u32.to_le_bytes());
+        expected.extend_from_slice(b"TITLE=Hello");
+        expected.extend_from_slice(&13u32.to_le_bytes());
+        expected.extend_from_slice(b"ARTIST=Kyutai");
+        assert_eq!(packet, expected);
+        // Without tags, the comment header is left empty.
+        let encoder = Encoder::new(24000)?;
+        let mut reader = ogg::PacketReader::new(std::io::Cursor::new(encoder.header_data()));
+        reader.read_packet_expected()?;
+        assert_eq!(reader.read_packet_expected()?.data.len(), 8 + 4 + 11 + 4);
+        Ok(())
     }
 }

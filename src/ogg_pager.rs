@@ -9,7 +9,9 @@
 use crate::Result;
 
 // https://xiph.org/ogg/doc/framing.html
-#[repr(Rust, packed)]
+// `repr(C)` fixes the fields in their on-wire order and `packed` removes padding, so the struct
+// has the layout of the 27-byte page header and can be read straight from the bytes.
+#[repr(C, packed)]
 #[derive(Debug, Clone)]
 pub struct OggHeader {
     pub capture_pattern: [u8; 4],
@@ -22,10 +24,30 @@ pub struct OggHeader {
     pub page_segments: u8,
 }
 
+const _: () = assert!(std::mem::size_of::<OggHeader>() == 27);
+
 impl OggHeader {
-    // Ogg header fields are little-endian, see RFC 3533 section 6.
-    // `data` must hold at least `size_of::<OggHeader>()` bytes.
+    /// Decodes the page header at the start of `data`. Ogg header fields are little-endian
+    /// (RFC 3533 section 6), the host's byte order here, so the bytes are copied as they are.
+    #[cfg(target_endian = "little")]
     fn from_le_slice(data: &[u8]) -> Self {
+        assert!(data.len() >= std::mem::size_of::<Self>());
+        // SAFETY: `data` holds at least `size_of::<Self>()` bytes, `read_unaligned` has no
+        // alignment requirement, and every bit pattern is a valid value for the integer fields.
+        unsafe { std::ptr::read_unaligned(data.as_ptr().cast::<Self>()) }
+    }
+
+    /// Decodes the page header at the start of `data`. Ogg header fields are little-endian
+    /// (RFC 3533 section 6), so each one is converted to the host's byte order.
+    #[cfg(target_endian = "big")]
+    fn from_le_slice(data: &[u8]) -> Self {
+        Self::parse_le(data)
+    }
+
+    /// Decodes the page header at the start of `data` field by field, whatever the host's byte
+    /// order. `data` must hold at least `size_of::<OggHeader>()` bytes.
+    #[cfg(any(target_endian = "big", test))]
+    fn parse_le(data: &[u8]) -> Self {
         let u32_at = |o: usize| u32::from_le_bytes(data[o..o + 4].try_into().unwrap());
         Self {
             capture_pattern: data[0..4].try_into().unwrap(),
@@ -147,7 +169,9 @@ mod tests {
     use super::*;
 
     // Ogg page header fields are little-endian (RFC 3533 section 6), so the decoded values must
-    // not depend on the host byte order.
+    // not depend on the host byte order. Both the decoding used on this host and the
+    // field-by-field one used on big-endian hosts are checked.
+    // https://www.rfc-editor.org/rfc/rfc3533#section-6
     #[test]
     fn page_header_is_decoded_as_little_endian() {
         let mut bytes = Vec::new();
@@ -164,12 +188,15 @@ mod tests {
         let mut reader = PageReader::new();
         reader.append_bytes(&bytes);
         let page = reader.next().unwrap().unwrap();
-        let h = &page.header;
-        assert_eq!({ h.granule_position }, 0x0102030405060708);
-        assert_eq!({ h.bitstream_serial }, 0x11223344);
-        assert_eq!({ h.page_sequence }, 0x55667788);
-        assert_eq!({ h.checksum }, 0xaabbccdd);
-        assert_eq!(h.page_segments, 1);
         assert_eq!(page.segments, vec![vec![9, 9, 9]]);
+        for h in [page.header, OggHeader::parse_le(&bytes)] {
+            assert_eq!(&h.capture_pattern, b"OggS");
+            assert_eq!(h.header_type, 0x02);
+            assert_eq!({ h.granule_position }, 0x0102030405060708);
+            assert_eq!({ h.bitstream_serial }, 0x11223344);
+            assert_eq!({ h.page_sequence }, 0x55667788);
+            assert_eq!({ h.checksum }, 0xaabbccdd);
+            assert_eq!(h.page_segments, 1);
+        }
     }
 }

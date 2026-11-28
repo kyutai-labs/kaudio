@@ -22,7 +22,16 @@ impl OpusHead {
         if data.len() != l {
             return Err(crate::Error::OggUnexpectedLenForOpusHead(data.len()));
         }
-        let head: Self = unsafe { std::ptr::read_unaligned(data.as_ptr() as *const Self) };
+        // OpusHead fields are little-endian, see RFC 7845 section 5.1.
+        let head = Self {
+            magic_signature: data[0..8].try_into().unwrap(),
+            version: data[8],
+            channel_count: data[9],
+            pre_skip: u16::from_le_bytes(data[10..12].try_into().unwrap()),
+            sample_rate: u32::from_le_bytes(data[12..16].try_into().unwrap()),
+            output_gain: i16::from_le_bytes(data[16..18].try_into().unwrap()),
+            mapping_family: data[18],
+        };
         if &head.magic_signature != b"OpusHead" {
             return Err(crate::Error::OggUnexpectedSignature(head.magic_signature));
         }
@@ -255,6 +264,24 @@ impl Decoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // OpusHead fields are little-endian (RFC 7845 section 5.1), independent of the host.
+    #[test]
+    fn opus_head_is_decoded_as_little_endian() -> Result<()> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"OpusHead");
+        bytes.extend_from_slice(&[1, 2]);
+        bytes.extend_from_slice(&[0x02, 0x01]); // pre_skip
+        bytes.extend_from_slice(&[0x44, 0x33, 0x22, 0x11]); // sample_rate
+        bytes.extend_from_slice(&[0xfe, 0xff]); // output_gain = -2
+        bytes.push(0);
+        let head = OpusHead::from_slice(&bytes)?;
+        assert_eq!({ head.pre_skip }, 0x0102);
+        assert_eq!({ head.sample_rate }, 0x11223344);
+        assert_eq!({ head.output_gain }, -2);
+        assert_eq!(head.channel_count, 2);
+        Ok(())
+    }
 
     #[test]
     fn opus_tags() -> Result<()> {

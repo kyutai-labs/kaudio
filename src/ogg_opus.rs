@@ -18,42 +18,39 @@ pub struct OpusHead {
     pub mapping_family: u8,
 }
 
-const _: () = assert!(std::mem::size_of::<OpusHead>() == 19);
+const OPUS_HEAD_LEN: usize = std::mem::size_of::<OpusHead>();
 
 impl OpusHead {
     pub fn from_slice(data: &[u8]) -> Result<Self> {
-        let l = std::mem::size_of::<OpusHead>();
-        if data.len() != l {
+        let Ok(data) = <&[u8; OPUS_HEAD_LEN]>::try_from(data) else {
             return Err(crate::Error::OggUnexpectedLenForOpusHead(data.len()));
-        }
-        let head = Self::from_le_slice(data);
+        };
+        let head = Self::from_le_bytes(data);
         if &head.magic_signature != b"OpusHead" {
             return Err(crate::Error::OggUnexpectedSignature(head.magic_signature));
         }
         Ok(head)
     }
 
-    /// Decodes the ID header at the start of `data`. Its fields are little-endian (RFC 7845
-    /// section 5.1), the host's byte order here, so the bytes are copied as they are.
+    /// Decodes the ID header `data`. Its fields are little-endian (RFC 7845 section 5.1), the
+    /// host's byte order here, so the bytes are copied as they are.
     #[cfg(target_endian = "little")]
-    fn from_le_slice(data: &[u8]) -> Self {
-        assert!(data.len() >= std::mem::size_of::<Self>());
-        // SAFETY: `data` holds at least `size_of::<Self>()` bytes, `read_unaligned` has no
+    fn from_le_bytes(data: &[u8; OPUS_HEAD_LEN]) -> Self {
+        // SAFETY: `data` holds exactly `size_of::<Self>()` bytes, `read_unaligned` has no
         // alignment requirement, and every bit pattern is a valid value for the integer fields.
         unsafe { std::ptr::read_unaligned(data.as_ptr().cast::<Self>()) }
     }
 
-    /// Decodes the ID header at the start of `data`. Its fields are little-endian (RFC 7845
-    /// section 5.1), so each one is converted to the host's byte order.
+    /// Decodes the ID header `data`. Its fields are little-endian (RFC 7845 section 5.1), so
+    /// each one is converted to the host's byte order.
     #[cfg(target_endian = "big")]
-    fn from_le_slice(data: &[u8]) -> Self {
+    fn from_le_bytes(data: &[u8; OPUS_HEAD_LEN]) -> Self {
         Self::parse_le(data)
     }
 
-    /// Decodes the ID header at the start of `data` field by field, whatever the host's byte
-    /// order. `data` must hold at least `size_of::<OpusHead>()` bytes.
+    /// Decodes the ID header `data` field by field, whatever the host's byte order.
     #[cfg(any(target_endian = "big", test))]
-    fn parse_le(data: &[u8]) -> Self {
+    fn parse_le(data: &[u8; OPUS_HEAD_LEN]) -> Self {
         Self {
             magic_signature: data[0..8].try_into().unwrap(),
             version: data[8],
@@ -292,6 +289,10 @@ impl Decoder {
 mod tests {
     use super::*;
 
+    // `OpusHead` is read straight from the bytes of the 19-byte ID header (RFC 7845 section
+    // 5.1), so it must have exactly that size.
+    const _: () = assert!(std::mem::size_of::<OpusHead>() == 19);
+
     // OpusHead fields are little-endian (RFC 7845 section 5.1), independent of the host. Both
     // the decoding used on this host and the field-by-field one used on big-endian hosts are
     // checked.
@@ -305,7 +306,10 @@ mod tests {
         bytes.extend_from_slice(&[0x44, 0x33, 0x22, 0x11]); // sample_rate
         bytes.extend_from_slice(&[0xfe, 0xff]); // output_gain = -2
         bytes.push(0);
-        for head in [OpusHead::from_slice(&bytes)?, OpusHead::parse_le(&bytes)] {
+        for head in [
+            OpusHead::from_slice(&bytes)?,
+            OpusHead::parse_le(bytes.as_slice().try_into().unwrap()),
+        ] {
             assert_eq!(&head.magic_signature, b"OpusHead");
             assert_eq!({ head.pre_skip }, 0x0102);
             assert_eq!({ head.sample_rate }, 0x11223344);

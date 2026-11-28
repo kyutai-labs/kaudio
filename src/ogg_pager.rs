@@ -24,30 +24,28 @@ pub struct OggHeader {
     pub page_segments: u8,
 }
 
-const _: () = assert!(std::mem::size_of::<OggHeader>() == 27);
+const OGG_HEADER_LEN: usize = std::mem::size_of::<OggHeader>();
 
 impl OggHeader {
-    /// Decodes the page header at the start of `data`. Ogg header fields are little-endian
-    /// (RFC 3533 section 6), the host's byte order here, so the bytes are copied as they are.
+    /// Decodes the page header `data`. Ogg header fields are little-endian (RFC 3533
+    /// section 6), the host's byte order here, so the bytes are copied as they are.
     #[cfg(target_endian = "little")]
-    fn from_le_slice(data: &[u8]) -> Self {
-        assert!(data.len() >= std::mem::size_of::<Self>());
-        // SAFETY: `data` holds at least `size_of::<Self>()` bytes, `read_unaligned` has no
+    fn from_le_bytes(data: &[u8; OGG_HEADER_LEN]) -> Self {
+        // SAFETY: `data` holds exactly `size_of::<Self>()` bytes, `read_unaligned` has no
         // alignment requirement, and every bit pattern is a valid value for the integer fields.
         unsafe { std::ptr::read_unaligned(data.as_ptr().cast::<Self>()) }
     }
 
-    /// Decodes the page header at the start of `data`. Ogg header fields are little-endian
-    /// (RFC 3533 section 6), so each one is converted to the host's byte order.
+    /// Decodes the page header `data`. Ogg header fields are little-endian (RFC 3533
+    /// section 6), so each one is converted to the host's byte order.
     #[cfg(target_endian = "big")]
-    fn from_le_slice(data: &[u8]) -> Self {
+    fn from_le_bytes(data: &[u8; OGG_HEADER_LEN]) -> Self {
         Self::parse_le(data)
     }
 
-    /// Decodes the page header at the start of `data` field by field, whatever the host's byte
-    /// order. `data` must hold at least `size_of::<OggHeader>()` bytes.
+    /// Decodes the page header `data` field by field, whatever the host's byte order.
     #[cfg(any(target_endian = "big", test))]
-    fn parse_le(data: &[u8]) -> Self {
+    fn parse_le(data: &[u8; OGG_HEADER_LEN]) -> Self {
         let u32_at = |o: usize| u32::from_le_bytes(data[o..o + 4].try_into().unwrap());
         Self {
             capture_pattern: data[0..4].try_into().unwrap(),
@@ -82,11 +80,9 @@ impl PageReader {
 
     #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Result<Option<Page>> {
-        let hdr_size = std::mem::size_of::<OggHeader>();
-        if self.data.len() < hdr_size {
-            return Ok(None);
-        }
-        let hdr = OggHeader::from_le_slice(&self.data[..hdr_size]);
+        let Some(hdr) = self.data.first_chunk() else { return Ok(None) };
+        let hdr = OggHeader::from_le_bytes(hdr);
+        let hdr_size = OGG_HEADER_LEN;
         if &hdr.capture_pattern != b"OggS" {
             return Err(crate::Error::OggUnexpectedCapturePattern(hdr.capture_pattern));
         }
@@ -168,6 +164,10 @@ impl Default for PacketReader {
 mod tests {
     use super::*;
 
+    // `OggHeader` is read straight from the bytes of the 27-byte page header (RFC 3533 section
+    // 6), so it must have exactly that size.
+    const _: () = assert!(std::mem::size_of::<OggHeader>() == 27);
+
     // Ogg page header fields are little-endian (RFC 3533 section 6), so the decoded values must
     // not depend on the host byte order. Both the decoding used on this host and the
     // field-by-field one used on big-endian hosts are checked.
@@ -189,7 +189,7 @@ mod tests {
         reader.append_bytes(&bytes);
         let page = reader.next().unwrap().unwrap();
         assert_eq!(page.segments, vec![vec![9, 9, 9]]);
-        for h in [page.header, OggHeader::parse_le(&bytes)] {
+        for h in [page.header, OggHeader::parse_le(bytes.first_chunk().unwrap())] {
             assert_eq!(&h.capture_pattern, b"OggS");
             assert_eq!(h.header_type, 0x02);
             assert_eq!({ h.granule_position }, 0x0102030405060708);
